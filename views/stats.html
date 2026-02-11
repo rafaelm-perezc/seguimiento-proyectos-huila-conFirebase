@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tablero Estadístico - Huila</title>
+    <link rel="icon" href="/img/EvoProyec.png" type="image/png">
+    <link rel="shortcut icon" href="/img/EvoProyec.png" type="image/x-icon">
+    <link rel="stylesheet" href="/css/styles.min.css">
+    <link rel="stylesheet" href="/css/sweetalert2.min.css">
+
+    <style>
+        .comments-panel { max-height: 360px; overflow-y: auto; border: 1px solid #d9d9d9; border-radius: 8px; padding: 12px; background: #fff; }
+        .comment-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #efefef; font-size: 0.92rem; }
+        .comment-item:last-child { margin-bottom: 0; border-bottom: 0; padding-bottom: 0; }
+    </style>
+
+</head>
+<body>
+    <header class="header-huila">
+        <div class="container header-content">
+            <h1>GOBERNACIÓN DEL HUILA</h1>
+            <p>TABLERO DE CONTROL ESTADÍSTICO</p>
+        </div>
+    </header>
+
+    <main class="container main-stats-container">
+        <div class="stats-nav">
+            <a href="/" class="btn-primary btn-blue">⬅️ VOLVER AL INICIO</a>
+            <button type="button" class="btn-cancel btn-shutdown">🚪 CERRAR SESIÓN</button>
+        </div>
+
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="lblTotalProyectos">0</div>
+                <div>Proyectos Registrados</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lblTotalInversion">$0</div>
+                <div>Inversión Total</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lblTotalSedes">0</div>
+                <div>Sedes Impactadas</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="lblPromedioAvance">0%</div>
+                <div>Avance Físico Promedio</div>
+            </div>
+        </section>
+
+        <section class="filters-bar">
+            <strong>FILTRAR TRAZABILIDAD:</strong>
+            <div class="filter-group">
+                <select id="filtroIndicador" class="filter-select" aria-label="Filtrar por Indicador">
+                    <option value="">Seleccione un Indicador</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="filtroProyecto" class="filter-select" aria-label="Filtrar por Proyecto" disabled>
+                    <option value="">Seleccione un Proyecto</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="filtroActividad" class="filter-select" aria-label="Filtrar por Actividad" disabled>
+                    <option value="">Seleccione una Actividad</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="filtroMunicipio" class="filter-select" aria-label="Filtrar por Municipio" disabled>
+                    <option value="">Seleccione un Municipio</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="filtroInstitucion" class="filter-select" aria-label="Filtrar por Institución" disabled>
+                    <option value="">Seleccione una Institución</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <select id="filtroSede" class="filter-select" aria-label="Filtrar por Sede" disabled>
+                    <option value="">Seleccione una Sede</option>
+                </select>
+            </div>
+            <button id="btnLimpiarFiltros" class="btn-cancel">Limpiar</button>
+        </section>
+
+        <div class="grid-2">
+            <div class="chart-container">
+                <h3 class="section-title">📈 Evolución de Avance en el Tiempo</h3>
+                <p id="lblEstadoGrafica" class="chart-caption">Seleccione un indicador para visualizar la trazabilidad.</p>
+                <canvas id="chartEvolution"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <h3 class="section-title">💬 Comentarios</h3>
+                <p class="chart-caption">Haga clic sobre un punto de la gráfica para ver los comentarios de esa fecha.</p>
+                <div id="commentsPanel" class="comments-panel">No hay comentarios para mostrar.</div>
+            </div>
+        </div>
+
+    </main>
+    <script src="/js/chart.js"></script>
+    <script src="/js/sweetalert2.all.min.js"></script>
+    <script src="/js/stats.min.js"></script>
+    <script src="/js/shutdown.js"></script>
+</body>
+</html>

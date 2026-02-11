@@ -1,0 +1,34 @@
+{
+  "name": "seguimiento-proyectos-huila",
+  "version": "1.0.0",
+  "description": "Sistema de Seguimiento a Proyectos - Gobernación del Huila",
+  "main": "app.js",
+  "bin": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "build": "pkg . --targets node18-win-x64 --output SistemaProyectos --compress GZip"
+  },
+  "pkg": {
+    "assets": [
+      "views/**/*",
+      "public/**/*",
+      "src/db/*.xlsx"
+    ],
+    "outputPath": "dist"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "firebase": "^12.9.0",
+    "multer": "^1.4.5-lts.1",
+    "open": "^8.4.2",
+    "sqlite3": "^5.1.6",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "author": "Gobernación del Huila",
+  "license": "ISC"
+}

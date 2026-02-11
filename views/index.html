@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seguimiento Proyectos Huila</title>
+    <link rel="icon" href="/img/EvoProyec.png" type="image/png">
+    <link rel="shortcut icon" href="/img/EvoProyec.png" type="image/x-icon">
+    <link rel="stylesheet" href="/css/styles.min.css">
+    <link rel="stylesheet" href="/css/sweetalert2.min.css">
+</head>
+<body>
+    <header class="header-huila">
+        <div class="container header-content">
+            <h1>GOBERNACIÓN DEL HUILA</h1>
+            <p>SISTEMA DE SEGUIMIENTO A PROYECTOS</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="search-section card">
+            <div class="row-actions">
+                <div class="search-box-container">
+                    <label for="searchBpin">BUSCAR PROYECTO:</label>
+                    <div class="input-group">
+                        <input type="text" id="searchBpin" placeholder="BPIN O NOMBRE..." autocomplete="off">
+                        <button id="btnSearch" class="btn-primary" aria-label="Buscar Proyecto">🔍</button>
+                    </div>
+                    <ul id="searchResults" class="results-list hidden"></ul>
+                </div>
+                <div class="action-buttons">
+                    <button id="btnNewProject" class="btn-primary btn-dark-green">➕ NUEVO PROYECTO</button>
+                    <button id="btnOpenUpload" class="btn-secondary">📂 CARGAR EXCEL</button>
+                    <button id="btnExport" class="btn-success">📊 EXPORTAR</button>
+                    <a href="/estadisticas" class="btn-primary btn-blue">📈 ESTADÍSTICAS</a>
+                    <button id="btnCleanDB" class="btn-success">📊 LIMPIAR BD</button>
+                    <button type="button" class="btn-cancel btn-shutdown">🚪 CERRAR SESIÓN</button>
+                </div>
+            </div>
+        </section>
+
+        <form id="trackingForm" class="hidden">
+            <input type="hidden" id="projectId" name="proyecto_id">
+            <input type="hidden" id="jsonUbicaciones" name="ubicaciones">
+
+            <section id="projectInfoSection" class="project-info card">
+                <h2 class="section-title">1. INFORMACIÓN GENERAL DEL CONTRATO</h2>
+                <div class="grid-info">
+                    <div class="form-group"><label for="txtBpin">CÓDIGO BPIN:</label><input type="text" id="txtBpin" name="codigo_bpin"></div>
+                    <div class="form-group"><label for="txtAnio">AÑO CONTRATO:</label><input type="number" id="txtAnio" name="anio_contrato" required></div>
+                    <div class="form-group full-width"><label for="txtNombre">NOMBRE DEL PROYECTO:</label><input type="text" id="txtNombre" name="nombre_proyecto" required></div>
+                    <div class="form-group"><label for="txtContratista">CONTRATISTA:</label><input type="text" id="txtContratista" name="contratista"></div>
+                </div>
+
+                <div class="finance-box">
+                    <div class="flex-between-center">
+                        <label class="finance-label no-margin">FUENTES DE FINANCIACIÓN</label>
+                        <div class="text-right">
+                            <span class="finance-total-label">VALOR TOTAL CALCULADO:</span>
+                            <span id="lblTotal" class="text-black finance-total-amount">$0</span>
+                        </div>
+                    </div>
+                    
+                    <hr class="divider">
+                    
+                    <div class="grid-finance-options">
+                        <div class="form-group"><div class="flex-center-gap margin-bottom-5"><input type="checkbox" id="chkRp" class="w-auto"><label for="chkRp" class="no-margin cursor-pointer">R.P.</label></div><input type="number" id="txtRp" name="valor_rp" class="hidden" placeholder="Valor R.P." step="0.01"></div>
+                        <div class="form-group"><div class="flex-center-gap margin-bottom-5"><input type="checkbox" id="chkSgp" class="w-auto"><label for="chkSgp" class="no-margin cursor-pointer">S.G.P.</label></div><input type="number" id="txtSgp" name="valor_sgp" class="hidden" placeholder="Valor S.G.P." step="0.01"></div>
+                        <div class="form-group"><div class="flex-center-gap margin-bottom-5"><input type="checkbox" id="chkMen" class="w-auto"><label for="chkMen" class="no-margin cursor-pointer">MEN</label></div><input type="number" id="txtMen" name="valor_men" class="hidden" placeholder="Valor MEN" step="0.01"></div>
+                        <div class="form-group"><div class="flex-center-gap margin-bottom-5"><input type="checkbox" id="chkSgr" class="w-auto"><label for="chkSgr" class="no-margin cursor-pointer">S.G.R.</label></div><input type="number" id="txtSgr" name="valor_sgr" class="hidden" placeholder="Valor S.G.R." step="0.01"></div>
+                    </div>
+
+                    <div class="finance-manual-box">
+                        <span class="finance-hint">¿No tienes el desglose? Ingresa el total directamente:</span>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label for="txtValorTotalManual">VALOR TOTAL CONTRATO:</label>
+                                <input type="number" id="txtValorTotalManual" name="valor_total_manual" placeholder="Ej: 500000000" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label for="txtFuenteManual">NOMBRE FUENTE (Opcional):</label>
+                                <input type="text" id="txtFuenteManual" name="fuente_recursos_manual" placeholder="Ej: Cofinanciación Nacional">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2 class="section-title">2. DETALLES DE EJECUCIÓN</h2>
+                <div class="grid-2">
+                    <div class="form-group"><label for="selectIndicador">INDICADOR (Aplica a todas las sedes):</label><select id="selectIndicador" name="indicador_id" required></select></div>
+                    <div class="form-group">
+                        <label for="txtResponsable">RESPONSABLE:</label>
+                        <input type="text" id="txtResponsable" name="responsable" required class="input-readonly" readonly>
+                    </div>
+                </div>
+                <div class="form-group full-width">
+                    <label for="selectActividad">ACTIVIDAD A CONTRATAR:</label>
+                    <select id="selectActividad" name="actividad_id">
+                        <option value="">-- SELECCIONE --</option>
+                        <option value="new_activity">➕ NUEVA ACTIVIDAD...</option>
+                    </select>
+                </div>
+                <div id="newActivityContainer" class="form-group full-width hidden">
+                    <label for="txtNuevaActividad">DESCRIPCIÓN NUEVA ACTIVIDAD:</label>
+                    <input type="text" id="txtNuevaActividad" name="nueva_actividad_descripcion">
+                </div>
+                <div class="form-group">
+                     <label for="txtFecha">FECHA SEGUIMIENTO:</label>
+                     <input type="date" id="txtFecha" name="fecha_seguimiento" required>
+                </div>
+            </section>
+
+            <section id="trackingSection" class="tracking-form card section-border-green">
+                <h2 class="section-title section-title-green">3. AGREGAR UBICACIONES Y AVANCES</h2>
+                <p class="section-desc">Selecciona la ubicación, ingresa el avance específico y dale clic a "AGREGAR A LISTA". Puedes agregar varias sedes al mismo proyecto.</p>
+
+                <div class="grid-3">
+                    <div class="form-group">
+                        <label for="selectMunicipio">MUNICIPIO:</label>
+                        <select id="selectMunicipio"></select>
+                        <input type="text" id="txtNewMunicipio" class="hidden input-new" placeholder="NOMBRE NUEVO MUNICIPIO">
+                    </div>
+                    <div class="form-group">
+                        <label for="selectInstitucion">INSTITUCIÓN:</label>
+                        <select id="selectInstitucion" disabled></select>
+                        <input type="text" id="txtNewInstitucion" class="hidden input-new" placeholder="NOMBRE NUEVA INSTITUCIÓN">
+                    </div>
+                    <div class="form-group">
+                        <label for="selectSede">SEDE:</label>
+                        <select id="selectSede" disabled></select>
+                        <input type="text" id="txtNewSede" class="hidden input-new" placeholder="NOMBRE NUEVA SEDE">
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group"><label for="txtAvanceLocal">% AVANCE EN ESTA SEDE:</label><input type="number" id="txtAvanceLocal" step="0.01"></div>
+                    <div class="form-group"><label for="txtObservacionesLocal">OBSERVACIONES:</label><textarea id="txtObservacionesLocal" rows="1"></textarea></div>
+                </div>
+
+                <div class="btn-container-center">
+                    <button type="button" id="btnAddLocation" class="btn-primary btn-orange">⬇️ AGREGAR SEDE A LISTA</button>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table" id="locationsTable">
+                        <thead>
+                            <tr>
+                                <th>MUNICIPIO</th>
+                                <th>INSTITUCIÓN</th>
+                                <th>SEDE</th>
+                                <th class="text-center">% AVANCE</th>
+                                <th class="text-center">ÚLTIMA ACTUALIZACIÓN</th>
+                                <th class="text-center">ACCIÓN</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr id="emptyRow"><td colspan="6" class="empty-row-text">No has agregado sedes aún.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <hr class="divider">
+
+                <div class="adicion-section">
+                    <div class="checkbox-group"><input type="checkbox" id="chkAdicion" name="es_adicion"><label for="chkAdicion">¿ES ADICIÓN?</label></div>
+                    <div id="adicionFields" class="grid-2 hidden">
+                        <div class="form-group"><label for="txtValorAdicion">VALOR ADICIÓN:</label><input type="number" id="txtValorAdicion" name="valor_adicion" step="0.01"></div>
+                        <div class="form-group"><label for="txtFuenteAdicion">FUENTE ADICIÓN:</label><input type="text" id="txtFuenteAdicion" name="fuente_adicion"></div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-submit btn-save-large">💾 GUARDAR TODO EL PROYECTO</button>
+                    <button type="button" id="btnCancel" class="btn-cancel">CANCELAR</button>
+                </div>
+            </section>
+        </form>
+    </main>
+
+    <div id="uploadModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>CARGA MASIVA</h2>
+            <form id="uploadForm">
+                <label for="archivoExcel" class="upload-label">Selecciona el archivo Excel (.xlsx):</label>
+                <input type="file" id="archivoExcel" name="archivoExcel" accept=".xlsx" required><br><br>
+                <button type="submit" class="btn-primary">SUBIR Y PROCESAR</button>
+            </form>
+            <div id="uploadStatus"></div>
+        </div>
+    </div>
+    <script src="/js/sweetalert2.all.min.js"></script> 
+    <script src="/js/script.min.js"></script>
+    <script src="/js/shutdown.js"></script>
+</body>
+</html>
