@@ -113,24 +113,52 @@ db.serialize(() => {
     // Índices y ajustes
     db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_actividades_unique ON actividades(proyecto_id, descripcion)`);
 
-    // Verificación de integridad de sync_uid (Retrocompatibilidad)
-    db.all(`PRAGMA table_info(seguimientos)`, (pragmaErr, columns) => {
-        if (pragmaErr) return console.error('❌ Error structure:', pragmaErr.message);
+    // Migración de retrocompatibilidad para bases antiguas (.exe previos)
+    // Garantiza que las tablas que sincronizan con Firebase tengan sync_uid.
+    const ensureSyncUidColumn = (tableName, uniqueIndexName) => {
+        db.all(`PRAGMA table_info(${tableName})`, (pragmaErr, columns) => {
+            if (pragmaErr) {
+                console.error(`❌ Error leyendo estructura de ${tableName}:`, pragmaErr.message);
+                return;
+            }
 
-        const ensureSyncUidReady = () => {
-            db.run(`UPDATE seguimientos SET sync_uid = lower(hex(randomblob(16))) WHERE sync_uid IS NULL OR sync_uid = ''`, (e) => {
-                if(!e) db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_seguimientos_sync_uid ON seguimientos(sync_uid)`);
-            });
-        };
+            const ensureSyncUidReady = () => {
+                db.run(
+                    `UPDATE ${tableName} SET sync_uid = lower(hex(randomblob(16))) WHERE sync_uid IS NULL OR sync_uid = ''`,
+                    (updateErr) => {
+                        if (updateErr) {
+                            console.error(`❌ Error actualizando sync_uid en ${tableName}:`, updateErr.message);
+                            return;
+                        }
+                        db.run(
+                            `CREATE UNIQUE INDEX IF NOT EXISTS ${uniqueIndexName} ON ${tableName}(sync_uid)`,
+                            (indexErr) => {
+                                if (indexErr) {
+                                    console.error(`❌ Error creando índice ${uniqueIndexName}:`, indexErr.message);
+                                }
+                            }
+                        );
+                    }
+                );
+            };
 
-        if (!columns.some(col => col.name === 'sync_uid')) {
-            db.run(`ALTER TABLE seguimientos ADD COLUMN sync_uid TEXT`, (alterErr) => {
-                if (!alterErr) ensureSyncUidReady();
-            });
-        } else {
-            ensureSyncUidReady();
-        }
-    });
+            if (!columns.some(col => col.name === 'sync_uid')) {
+                db.run(`ALTER TABLE ${tableName} ADD COLUMN sync_uid TEXT`, (alterErr) => {
+                    if (alterErr) {
+                        console.error(`❌ Error agregando sync_uid en ${tableName}:`, alterErr.message);
+                        return;
+                    }
+                    ensureSyncUidReady();
+                });
+            } else {
+                ensureSyncUidReady();
+            }
+        });
+    };
+
+    ensureSyncUidColumn('proyectos', 'idx_proyectos_sync_uid');
+    ensureSyncUidColumn('actividades', 'idx_actividades_sync_uid');
+    ensureSyncUidColumn('seguimientos', 'idx_seguimientos_sync_uid');
 
     // Carga inicial si está vacío
     db.get("SELECT count(*) as count FROM indicadores", (err, row) => {
