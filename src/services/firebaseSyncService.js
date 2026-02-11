@@ -55,16 +55,53 @@ const runBidirectionalSync = async () => {
         // -----------------------------------------------------------------------
         const localHasProjects = localData.proyectos && Object.keys(localData.proyectos).length > 0;
         const remoteHasProjects = remoteData.proyectos && Object.keys(remoteData.proyectos).length > 0;
+        const localHasSeedCatalogs = Boolean(
+            (localData.municipios?.length || 0) > 0 &&
+            (localData.instituciones?.length || 0) > 0 &&
+            (localData.sedes?.length || 0) > 0 &&
+            (localData.indicadores?.length || 0) > 0
+        );
+        const isNewPcBootstrap = !localHasProjects && localHasSeedCatalogs && remoteHasProjects;
 
         // CASO 1: Soy un PC nuevo (vacío) y en la nube hay datos -> ¡DESCARGAR SIEMPRE!
-        if (!localHasProjects && remoteHasProjects) {
-            console.warn("🛡️ DETECTADO: Base local vacía vs Nube con datos. FORZANDO DESCARGA DE SEGURIDAD.");
-            await upsertRemoteIntoLocal(remoteData);
-            // Igualamos la fecha para que quede sincronizado
-            await touchLocalChange(); 
+        if (isNewPcBootstrap) {
+            console.warn("🛡️ DETECTADO: Bootstrap explícito de PC nuevo (catálogos semilla + nube con proyectos). Iniciando réplica segura.");
+            await upsertRemoteIntoLocal(remoteData, { bootstrapMode: true });
+            await recalculateSyncMetadata(remoteData.meta?.last_change_at);
             console.log("✅ Recuperación de datos completada exitosamente.");
             isSyncing = false;
             return; // ¡IMPORTANTE! Salir aquí para no ejecutar nada más.
+        }
+
+        if (!localHasProjects && remoteHasProjects) {
+            console.warn("🛡️ DETECTADO: Base local vacía vs Nube con datos. FORZANDO DESCARGA DE SEGURIDAD.");
+            await upsertRemoteIntoLocal(remoteData);
+            await recalculateSyncMetadata(remoteData.meta?.last_change_at);
+            console.log("✅ Recuperación de datos completada exitosamente.");
+            isSyncing = false;
+            return;
+        }
+
+        // CASO 1B: Migración inicial local -> nube (nube vacía)
+        if (localHasProjects && !remoteHasProjects) {
+            console.warn("🛡️ DETECTADO: Migración inicial local→nube. Publicando toda la base local en Firebase.");
+
+            const payload = {
+                "meta": { "last_change_at": new Date().toISOString() },
+                "municipios": arrayToObject(localData.municipios),
+                "instituciones": arrayToObject(localData.instituciones),
+                "sedes": arrayToObject(localData.sedes),
+                "indicadores": arrayToObject(localData.indicadores),
+                "proyectos": arrayToObject(localData.proyectos),
+                "actividades": arrayToObject(localData.actividades),
+                "seguimientos": arrayToObject(localData.seguimientos)
+            };
+
+            await update(ref(db), payload);
+            await touchLocalChange();
+            console.log("✅ Migración inicial local→nube completada correctamente.");
+            isSyncing = false;
+            return;
         }
         // -----------------------------------------------------------------------
 
@@ -101,7 +138,7 @@ const runBidirectionalSync = async () => {
             // CASO 3: Alguien más actualizó la nube -> Descargar
             console.log(`📥 Descargando nuevos datos... (R: ${remoteTime} > L: ${localTime})`);
             await upsertRemoteIntoLocal(remoteData);
-            await touchLocalChange();
+            await recalculateSyncMetadata(remoteData.meta?.last_change_at);
             console.log("✅ Datos locales actualizados.");
         }
 
@@ -148,54 +185,207 @@ async function getAllLocalData() {
     };
 }
 
-async function upsertRemoteIntoLocal(remote) {
+async function upsertRemoteIntoLocal(remote, options = {}) {
     if (!remote) return;
-    
-    return new Promise((resolve) => {
-        dbLocal.serialize(() => {
-            dbLocal.run("BEGIN TRANSACTION");
 
-            // Limpieza Total para garantizar consistencia con la nube
-            if(remote.seguimientos) dbLocal.run("DELETE FROM seguimientos");
-            if(remote.actividades) dbLocal.run("DELETE FROM actividades");
-            if(remote.proyectos) dbLocal.run("DELETE FROM proyectos");
-            // Nota: No borramos catálogos base (municipios/sedes) para no romper IDs, 
-            // pero si quisieras réplica exacta podrías hacerlo.
-            
-            const insertGroup = (table, dataMap) => {
-                if (!dataMap) return;
-                const items = Object.values(dataMap);
-                if (items.length === 0) return;
-
-                // Detectar columnas (omitiendo id local)
-                const columns = Object.keys(items[0]).filter(k => k !== 'id');
-                const placeholders = columns.map(() => '?').join(',');
-                const stmt = dbLocal.prepare(`INSERT OR REPLACE INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`);
-
-                items.forEach(item => {
-                    stmt.run(columns.map(col => item[col]));
-                });
-                stmt.finalize();
-            };
-
-            try {
-                // Orden estricto para Foreign Keys
-                if(remote.municipios) insertGroup('municipios', remote.municipios);
-                if(remote.instituciones) insertGroup('instituciones', remote.instituciones);
-                if(remote.sedes) insertGroup('sedes', remote.sedes);
-                if(remote.indicadores) insertGroup('indicadores', remote.indicadores);
-                
-                if(remote.proyectos) insertGroup('proyectos', remote.proyectos);
-                if(remote.actividades) insertGroup('actividades', remote.actividades);
-                if(remote.seguimientos) insertGroup('seguimientos', remote.seguimientos);
-
-                dbLocal.run("COMMIT", resolve);
-            } catch (e) {
-                console.error("Error insertando remotos:", e);
-                dbLocal.run("ROLLBACK", resolve);
-            }
-        });
+    const remoteArray = (key) => Object.values(remote[key] || {});
+    const normalize = (value) => (value || '').toString().trim().toUpperCase();
+    const runAsync = (sql, params = []) => new Promise((resolve, reject) => {
+        dbLocal.run(sql, params, function onRun(err) { if (err) reject(err); else resolve(this); });
     });
+    const getAsync = (sql, params = []) => new Promise((resolve, reject) => {
+        dbLocal.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+    });
+    const allAsync = (sql, params = []) => new Promise((resolve, reject) => {
+        dbLocal.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+    });
+
+    const upsertCatalogsByNaturalKey = async () => {
+        const municipioMap = {};
+        const institucionMap = {};
+        const sedeMap = {};
+        const indicadorMap = {};
+
+        const localMunicipios = await allAsync("SELECT id, nombre FROM municipios");
+        const municipioByName = new Map(localMunicipios.map(m => [normalize(m.nombre), m.id]));
+        const remoteMunicipios = remoteArray('municipios');
+        for (const mun of remoteMunicipios) {
+            const munName = normalize(mun.nombre);
+            if (!munName) continue;
+
+            let localId = municipioByName.get(munName);
+            if (!localId) {
+                const insertResult = await runAsync("INSERT INTO municipios (nombre) VALUES (?)", [munName]);
+                localId = insertResult.lastID;
+                municipioByName.set(munName, localId);
+            }
+            if (mun.id !== undefined && mun.id !== null) municipioMap[mun.id] = localId;
+        }
+
+        const localInstituciones = await allAsync("SELECT id, nombre, municipio_id FROM instituciones");
+        const institucionByNatural = new Map(localInstituciones.map(i => [`${normalize(i.nombre)}|${i.municipio_id || ''}`, i.id]));
+        const remoteMunicipiosById = new Map(remoteMunicipios.map(m => [m.id, normalize(m.nombre)]));
+        const remoteInstituciones = remoteArray('instituciones');
+        for (const inst of remoteInstituciones) {
+            const instName = normalize(inst.nombre);
+            const remoteMunName = remoteMunicipiosById.get(inst.municipio_id);
+            const localMunId = municipioMap[inst.municipio_id] || municipioByName.get(remoteMunName);
+            if (!instName || !localMunId) continue;
+
+            const key = `${instName}|${localMunId}`;
+            let localId = institucionByNatural.get(key);
+            if (!localId) {
+                const insertResult = await runAsync("INSERT INTO instituciones (nombre, municipio_id) VALUES (?, ?)", [instName, localMunId]);
+                localId = insertResult.lastID;
+                institucionByNatural.set(key, localId);
+            }
+            if (inst.id !== undefined && inst.id !== null) institucionMap[inst.id] = localId;
+        }
+
+        const localSedes = await allAsync("SELECT id, nombre, institucion_id FROM sedes");
+        const sedesByNatural = new Map(localSedes.map(s => [`${normalize(s.nombre)}|${s.institucion_id || ''}`, s.id]));
+        const remoteSedes = remoteArray('sedes');
+        for (const sede of remoteSedes) {
+            const sedeName = normalize(sede.nombre);
+            const localInstId = institucionMap[sede.institucion_id];
+            if (!sedeName || !localInstId) continue;
+
+            const key = `${sedeName}|${localInstId}`;
+            let localId = sedesByNatural.get(key);
+            if (!localId) {
+                const insertResult = await runAsync("INSERT INTO sedes (nombre, institucion_id) VALUES (?, ?)", [sedeName, localInstId]);
+                localId = insertResult.lastID;
+                sedesByNatural.set(key, localId);
+            }
+            if (sede.id !== undefined && sede.id !== null) sedeMap[sede.id] = localId;
+        }
+
+        const localIndicadores = await allAsync("SELECT id, nombre FROM indicadores");
+        const indicadorByName = new Map(localIndicadores.map(i => [normalize(i.nombre), i.id]));
+        const remoteIndicadores = remoteArray('indicadores');
+        for (const indicador of remoteIndicadores) {
+            const indName = normalize(indicador.nombre);
+            if (!indName) continue;
+
+            let localId = indicadorByName.get(indName);
+            if (!localId) {
+                const insertResult = await runAsync("INSERT INTO indicadores (nombre) VALUES (?)", [indName]);
+                localId = insertResult.lastID;
+                indicadorByName.set(indName, localId);
+            }
+            if (indicador.id !== undefined && indicador.id !== null) indicadorMap[indicador.id] = localId;
+        }
+
+        return { municipioMap, institucionMap, sedeMap, indicadorMap };
+    };
+
+    const insertWithColumns = async (table, item, preferredOrder = []) => {
+        const availableColumns = [...new Set([...preferredOrder, ...Object.keys(item)])].filter((k) => item[k] !== undefined);
+        if (availableColumns.length === 0) return;
+        const placeholders = availableColumns.map(() => '?').join(',');
+        await runAsync(
+            `INSERT OR REPLACE INTO ${table} (${availableColumns.join(',')}) VALUES (${placeholders})`,
+            availableColumns.map((c) => item[c])
+        );
+    };
+
+    try {
+        await runAsync("BEGIN TRANSACTION");
+        if (options.bootstrapMode) {
+            console.log("🧭 Bootstrap de PC nuevo: aplicando catálogos por llave natural y réplica transaccional completa.");
+        }
+        const idMaps = await upsertCatalogsByNaturalKey();
+
+        // Transaccionales: réplica completa preservando IDs
+        if (remote.proyectos) await runAsync("DELETE FROM proyectos");
+        if (remote.actividades) await runAsync("DELETE FROM actividades");
+        if (remote.seguimientos) await runAsync("DELETE FROM seguimientos");
+
+        const proyectos = remoteArray('proyectos');
+        for (const proyecto of proyectos) {
+            await insertWithColumns('proyectos', proyecto, [
+                'id', 'codigo_bpin', 'nombre_proyecto', 'anio_contrato', 'contratista',
+                'valor_inicial', 'valor_rp', 'valor_sgp', 'valor_men', 'valor_sgr', 'fuente_recursos', 'sync_uid'
+            ]);
+        }
+
+        const actividades = remoteArray('actividades');
+        for (const actividad of actividades) {
+            await insertWithColumns('actividades', actividad, ['id', 'proyecto_id', 'descripcion', 'sync_uid']);
+        }
+
+        const seguimientos = remoteArray('seguimientos');
+        for (const seguimientoRaw of seguimientos) {
+            const seguimiento = { ...seguimientoRaw };
+            if (seguimiento.sede_id !== undefined && seguimiento.sede_id !== null) {
+                seguimiento.sede_id = idMaps.sedeMap[seguimiento.sede_id] || seguimiento.sede_id;
+            }
+            if (seguimiento.indicador_id !== undefined && seguimiento.indicador_id !== null) {
+                seguimiento.indicador_id = idMaps.indicadorMap[seguimiento.indicador_id] || seguimiento.indicador_id;
+            }
+
+            let duplicate = null;
+            if (seguimiento.sync_uid) {
+                duplicate = await getAsync("SELECT id FROM seguimientos WHERE sync_uid = ?", [seguimiento.sync_uid]);
+            }
+
+            if (!duplicate) {
+                const actividadId = seguimiento.actividad_id ?? null;
+                duplicate = await getAsync(
+                    `SELECT id FROM seguimientos
+                     WHERE proyecto_id = ?
+                       AND sede_id = ?
+                       AND indicador_id = ?
+                       AND fecha_seguimiento = ?
+                       AND (actividad_id = ? OR (actividad_id IS NULL AND ? IS NULL))`,
+                    [
+                        seguimiento.proyecto_id,
+                        seguimiento.sede_id,
+                        seguimiento.indicador_id,
+                        seguimiento.fecha_seguimiento,
+                        actividadId,
+                        actividadId
+                    ]
+                );
+            }
+
+            if (!duplicate) {
+                await insertWithColumns('seguimientos', seguimiento, [
+                    'id', 'proyecto_id', 'actividad_id', 'sede_id', 'indicador_id', 'porcentaje_avance',
+                    'fecha_seguimiento', 'responsable', 'observaciones', 'es_adicion', 'valor_adicion',
+                    'fuente_adicion', 'sync_uid'
+                ]);
+            }
+        }
+
+        await runAsync("COMMIT");
+    } catch (e) {
+        console.error("Error insertando remotos:", e);
+        await runAsync("ROLLBACK");
+    }
+}
+
+async function recalculateSyncMetadata(remoteTimestamp) {
+    const syncedAt = remoteTimestamp || new Date().toISOString();
+    const runAsync = (sql, params = []) => new Promise((resolve, reject) => {
+        dbLocal.run(sql, params, (err) => (err ? reject(err) : resolve()));
+    });
+
+    await runAsync(
+        `INSERT INTO app_meta (key, value) VALUES ('local_last_change_at', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [syncedAt]
+    );
+    await runAsync(
+        `INSERT INTO sync_metadata (key, value) VALUES ('local_last_change_at', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [syncedAt]
+    );
+    await runAsync(
+        `INSERT INTO sync_metadata (key, value) VALUES ('last_remote_sync_at', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        [new Date().toISOString()]
+    );
 }
 
 module.exports = { startSyncEngine, runBidirectionalSync, touchLocalChange };

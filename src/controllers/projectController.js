@@ -12,6 +12,110 @@ const cleanData = (str) => {
         .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 };
 
+const SIMILARITY_THRESHOLD = 0.88;
+
+const levenshteinDistance = (a = "", b = "") => {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+
+    const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+                matrix[i - 1][j] + 1,
+                matrix[i][j - 1] + 1,
+                matrix[i - 1][j - 1] + cost
+            );
+        }
+    }
+
+    return matrix[a.length][b.length];
+};
+
+const jaroWinkler = (s1 = "", s2 = "") => {
+    if (s1 === s2) return 1;
+    if (!s1.length || !s2.length) return 0;
+
+    const matchDistance = Math.max(Math.floor(Math.max(s1.length, s2.length) / 2) - 1, 0);
+    const s1Matches = new Array(s1.length).fill(false);
+    const s2Matches = new Array(s2.length).fill(false);
+
+    let matches = 0;
+    for (let i = 0; i < s1.length; i++) {
+        const start = Math.max(0, i - matchDistance);
+        const end = Math.min(i + matchDistance + 1, s2.length);
+        for (let j = start; j < end; j++) {
+            if (s2Matches[j] || s1[i] !== s2[j]) continue;
+            s1Matches[i] = true;
+            s2Matches[j] = true;
+            matches++;
+            break;
+        }
+    }
+
+    if (!matches) return 0;
+
+    let k = 0;
+    let transpositions = 0;
+    for (let i = 0; i < s1.length; i++) {
+        if (!s1Matches[i]) continue;
+        while (!s2Matches[k]) k++;
+        if (s1[i] !== s2[k]) transpositions++;
+        k++;
+    }
+
+    const jaro = (
+        (matches / s1.length) +
+        (matches / s2.length) +
+        ((matches - transpositions / 2) / matches)
+    ) / 3;
+
+    let prefix = 0;
+    const maxPrefix = 4;
+    for (let i = 0; i < Math.min(maxPrefix, s1.length, s2.length); i++) {
+        if (s1[i] !== s2[i]) break;
+        prefix++;
+    }
+
+    return jaro + (prefix * 0.1 * (1 - jaro));
+};
+
+const calculateNameSimilarity = (incomingName, existingName) => {
+    const incomingClean = cleanData(incomingName);
+    const existingClean = cleanData(existingName);
+    const maxLen = Math.max(incomingClean.length, existingClean.length, 1);
+    const distance = levenshteinDistance(incomingClean, existingClean);
+    const levenshteinSimilarity = 1 - (distance / maxLen);
+    const jaroWinklerSimilarity = jaroWinkler(incomingClean, existingClean);
+    const blended = (levenshteinSimilarity + jaroWinklerSimilarity) / 2;
+
+    return {
+        incoming_clean: incomingClean,
+        existing_clean: existingClean,
+        levenshtein_similarity: Number(levenshteinSimilarity.toFixed(4)),
+        jaro_winkler_similarity: Number(jaroWinklerSimilarity.toFixed(4)),
+        blended_similarity: Number(blended.toFixed(4))
+    };
+};
+
+const findSimilarProjectByName = async (projectName) => {
+    if (!projectName) return null;
+    const candidates = await ProjectModel.search(projectName);
+    if (!candidates.length) return null;
+
+    const evaluated = candidates.map((project) => {
+        const metrics = calculateNameSimilarity(projectName, project.nombre_proyecto);
+        return { project, metrics };
+    });
+
+    const best = evaluated.sort((a, b) => b.metrics.blended_similarity - a.metrics.blended_similarity)[0];
+    return best.metrics.blended_similarity >= SIMILARITY_THRESHOLD ? best : null;
+};
+
 // 2. Limpiador para ENCABEZADOS DE EXCEL
 const normalizeHeader = (row) => {
     const newRow = {};
@@ -42,7 +146,7 @@ const controller = {
     getProject: async (req, res) => {
         try {
             const p = await ProjectModel.search(req.params.bpin);
-            if (p) {
+            if (Array.isArray(p) && p.length > 0) {
                 const a = await ProjectModel.getActivitiesByProject(p[0].id);
                 const locations = await ProjectModel.getProjectLocations(p[0].id);
                 res.json({ found: true, project: p[0], activities: a, locations });
@@ -88,11 +192,27 @@ const controller = {
             }
 
             if (!projectId) {
+                const forceCreateSimilar = String(data.force_create_similar_name || '').toLowerCase() === 'true';
                 let existingProject = null;
                 if (data.codigo_bpin) existingProject = await ProjectModel.findByBpin(data.codigo_bpin);
                 if (!existingProject && data.nombre_proyecto) {
                     const searchResults = await ProjectModel.search(data.nombre_proyecto);
                     existingProject = searchResults.find(p => cleanData(p.nombre_proyecto) === cleanData(data.nombre_proyecto));
+                }
+
+                if (!existingProject && data.nombre_proyecto && !forceCreateSimilar) {
+                    const similarProject = await findSimilarProjectByName(data.nombre_proyecto);
+                    if (similarProject) {
+                        return res.status(409).json({
+                            error: 'Existe un proyecto con nombre muy similar.',
+                            existing_project: {
+                                id: similarProject.project.id,
+                                nombre: similarProject.project.nombre_proyecto
+                            },
+                            incoming_name: data.nombre_proyecto,
+                            similarity_metrics: similarProject.metrics
+                        });
+                    }
                 }
 
                 if (existingProject) { 
@@ -206,6 +326,13 @@ const controller = {
                     if (!existingProject && row['NOMBREDELPROYECTO']) {
                         const searchResults = await ProjectModel.search(row['NOMBREDELPROYECTO']);
                         existingProject = searchResults.find(p => cleanData(p.nombre_proyecto) === cleanData(row['NOMBREDELPROYECTO']));
+                    }
+
+                    if (!existingProject && row['NOMBREDELPROYECTO']) {
+                        const similarProject = await findSimilarProjectByName(row['NOMBREDELPROYECTO']);
+                        if (similarProject) {
+                            existingProject = similarProject.project;
+                        }
                     }
 
                     if (existingProject) { 
